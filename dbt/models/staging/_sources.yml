@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: gratuity_raw
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: gratuity_raw
+    tables:
+      - name: shifts
+      - name: daily_tips
+      - name: audit_log

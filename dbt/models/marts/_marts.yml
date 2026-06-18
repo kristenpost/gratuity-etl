@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: fct_daily_employee_payouts
+    description: Final per-employee daily tip payout after hours-based proration.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - shift_date
+            - employee_name
+    columns:
+      - name: shift_date
+        tests: [not_null]
+      - name: employee_name
+        tests: [not_null]
+      - name: hours_worked
+        tests: [not_null]
+      - name: hours_share_pct
+        tests: [not_null]
+      - name: total_payout
+        tests: [not_null]

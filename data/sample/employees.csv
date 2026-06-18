@@ -1,0 +1,5 @@
+employee_name,role,is_active
+Alex,server,true
+Jordan,bartender,true
+Sam,server,true
+Taylor,host,false

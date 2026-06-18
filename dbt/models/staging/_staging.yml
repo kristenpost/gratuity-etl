@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: stg_shifts
+    columns:
+      - name: shift_date
+        tests: [not_null]
+      - name: employee_name
+        tests: [not_null]
+      - name: clock_in
+        tests: [not_null]
+  - name: stg_daily_tips
+    columns:
+      - name: shift_date
+        tests: [not_null, unique]
+      - name: gross_sales
+        tests: [not_null]
+  - name: stg_audit_log
+    columns:
+      - name: audit_id
+        tests: [not_null, unique]

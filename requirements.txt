@@ -1,0 +1,19 @@
+# Core ETL
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+pandas>=2.0.0
+
+# SQLAlchemy + BigQuery
+sqlalchemy>=2.0.0
+sqlalchemy-bigquery>=1.11.0
+google-cloud-bigquery>=3.0.0
+
+# Google Sheets API
+google-api-python-client>=2.0.0
+google-auth>=2.0.0
+
+# Airflow (install locally; Docker image bundles its own)
+apache-airflow>=2.8.0
+
+# dbt (install separately: pip install dbt-bigquery)
+# dbt-bigquery>=1.7.0

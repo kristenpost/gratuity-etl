@@ -1,0 +1,13 @@
+# Copy to ~/.dbt/profiles.yml and replace placeholders.
+gratuity_etl:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      project: your-gcp-project-id
+      dataset: gratuity_staging
+      threads: 4
+      timeout_seconds: 300
+      location: US
+      keyfile: /path/to/service-account.json
