@@ -1,19 +1,17 @@
-# Core ETL
-python-dotenv>=1.0.0
-pydantic>=2.0.0
-pandas>=2.0.0
+# Local Python ETL dependencies (extract, load, audit).
+# Airflow runs in Docker — see docker-compose.yml (do NOT pip install airflow here).
+# dbt is installed separately: pip install "dbt-bigquery>=1.7,<2"
 
-# SQLAlchemy + BigQuery
-sqlalchemy>=2.0.0
-sqlalchemy-bigquery>=1.11.0
-google-cloud-bigquery>=3.0.0
+# Pin cryptography on Python 3.9 — newer versions lack wheels and fail to compile from source.
+cryptography>=42.0.0,<44
 
-# Google Sheets API
-google-api-python-client>=2.0.0
-google-auth>=2.0.0
+python-dotenv>=1.0.0,<2
+pydantic>=2.0.0,<3
+pandas>=2.0.0,<3
 
-# Airflow (install locally; Docker image bundles its own)
-apache-airflow>=2.8.0
+sqlalchemy>=2.0.0,<3
+sqlalchemy-bigquery>=1.11.0,<2
+google-cloud-bigquery>=3.25.0,<4
 
-# dbt (install separately: pip install dbt-bigquery)
-# dbt-bigquery>=1.7.0
+google-api-python-client>=2.100.0,<3
+google-auth>=2.28.0,<3

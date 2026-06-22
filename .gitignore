@@ -26,6 +26,11 @@ dbt/profiles.yml
 airflow/logs/
 airflow/airflow.db
 airflow/airflow.cfg
+logs/*
+!logs/.gitkeep
+
+# dbt local user config
+dbt/.user.yml
 
 # IDE and OS
 .idea/

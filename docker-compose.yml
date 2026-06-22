@@ -1,5 +1,7 @@
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.8.4-python3.11
+  build: .
+  env_file:
+    - .env
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
@@ -9,12 +11,9 @@ x-airflow-common: &airflow-common
     AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
     GRATUITY_PROJECT_ROOT: /opt/gratuity_etl
-    PYTHONPATH: /opt/gratuity_etl:/opt/gratuity_etl/src
-    _PIP_ADDITIONAL_REQUIREMENTS: >-
-      python-dotenv pydantic pandas sqlalchemy sqlalchemy-bigquery
-      google-cloud-bigquery google-api-python-client google-auth dbt-bigquery
-    GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
-    GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/opt/gratuity_etl/credentials/service-account.json}
+    ETL_PYTHON: /opt/etl-venv/bin/python
+    GCP_PROJECT_ID: ${GCP_PROJECT_ID:-gratuity-etl}
+    GOOGLE_APPLICATION_CREDENTIALS: /opt/gratuity_etl/credentials/service-account.json
     DATA_SOURCE: ${DATA_SOURCE:-sample}
     BQ_RAW_DATASET: ${BQ_RAW_DATASET:-gratuity_raw}
     BQ_STAGING_DATASET: ${BQ_STAGING_DATASET:-gratuity_staging}
@@ -25,7 +24,7 @@ x-airflow-common: &airflow-common
     - ./logs:/opt/airflow/logs
     - ./plugins:/opt/airflow/plugins
     - .:/opt/gratuity_etl
-  user: "${AIRFLOW_UID:-50000}:0"
+  user: "50000:0"
   depends_on:
     postgres:
       condition: service_healthy
@@ -76,7 +75,6 @@ services:
     command:
       - -c
       - |
-        mkdir -p /opt/airflow/logs /opt/airflow/dags /opt/airflow/plugins
         airflow db migrate
         airflow users create \
           --username admin \
@@ -85,10 +83,6 @@ services:
           --lastname User \
           --role Admin \
           --email admin@example.com || true
-    environment:
-      <<: *airflow-common-env
-      _AIRFLOW_DB_MIGRATE: "true"
-      _AIRFLOW_WWW_USER_CREATE: "true"
     restart: "no"
 
 volumes:

@@ -80,7 +80,7 @@ A snapshot is written when:
 
 | Component | Cost |
 |-----------|------|
-| Apache Airflow (local Docker) | Free |
+| Apache Airflow (local Docker only — not pip) | Free |
 | dbt Core | Free |
 | BigQuery (sample data volume) | Free tier — pennies at most |
 | Google Sheets API | Free for prototype read volume |
@@ -114,13 +114,26 @@ GCP signup typically requires a credit card for verification even on the free ti
 
 ### 1. Install dependencies
 
+**Important:** Do not install Apache Airflow with pip on your Mac. Airflow runs inside Docker (step 7). Including Airflow in pip causes long `google-auth` version conflicts.
+
+If a previous `pip install` is stuck, press **Ctrl+C**, then run:
+
 ```bash
 cd "Gratuity ETL"
 python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-pip install dbt-bigquery
+pip install "dbt-core>=1.9,<2" "dbt-bigquery>=1.9,<1.10"
+python -c "import pandas, sqlalchemy, google.auth; print('OK')"
+dbt --version
 ```
+
+The ETL install usually finishes in 1–3 minutes. `dbt-bigquery` may take another 2–5 minutes — that is normal.
+
+Install **both** `dbt-core` and `dbt-bigquery` together. If you only downgrade `dbt-bigquery`, `dbt-core` can stay on `2.0.0-alpha` and cause odd errors.
+
+**Python 3.9 on macOS:** If you see `Failed building wheel for cryptography`, the pinned version in `requirements.txt` fixes it. Upgrade pip first, then re-run the commands above.
 
 ### 2. Configure environment
 
@@ -137,14 +150,26 @@ cp dbt/profiles.yml.example ~/.dbt/profiles.yml
 cd dbt && dbt deps
 ```
 
-### 4. Load sample data to BigQuery
+### 4. Create BigQuery datasets (one-time)
+
+```bash
+export GCP_PROJECT_ID=gratuity-etl
+export GOOGLE_APPLICATION_CREDENTIALS="/Users/kristen/Gratuity ETL/credentials/service-account.json"
+python scripts/bootstrap_bigquery.py
+```
+
+### 5. Load sample data to BigQuery
+
+**Billing required:** GCP must have a billing account linked to run writes (INSERT/DELETE). You still get BigQuery free tier (~10 GB storage, ~1 TB queries/month). Set a $1 budget alert in GCP Console.
 
 ```bash
 export PYTHONPATH=".:src"
+export GCP_PROJECT_ID=gratuity-etl
+export GOOGLE_APPLICATION_CREDENTIALS="/Users/kristen/Gratuity ETL/credentials/service-account.json"
 python scripts/load_all_sample_days.py
 ```
 
-### 5. Run dbt transforms
+### 6. Run dbt transforms
 
 ```bash
 cd dbt
@@ -153,7 +178,7 @@ dbt run
 dbt test
 ```
 
-### 6. Query results in BigQuery
+### 7. Query results in BigQuery
 
 ```sql
 SELECT *
@@ -161,17 +186,37 @@ FROM `your-project-id.gratuity_marts.fct_daily_employee_payouts`
 ORDER BY shift_date, employee_name;
 ```
 
-### 7. Start Airflow (optional orchestration)
+### 8. Start Airflow (optional orchestration)
+
+**Prerequisite:** Install [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/) and make sure it is **running** (whale icon in the menu bar). Airflow runs inside Docker containers, not in your Python venv.
+
+In Terminal, from the project folder:
 
 ```bash
-export AIRFLOW_UID=$(id -u)
+cd "/Users/kristen/Gratuity ETL"
+docker compose down -v
+docker compose build
 docker compose up airflow-init
+```
+
+**macOS note:** Do **not** set `AIRFLOW_UID=$(id -u)` — that breaks Airflow in Docker on Mac. The compose file uses the default container user (`50000`).
+
+When `airflow-init` finishes without errors:
+
+```bash
 docker compose up -d
 ```
 
-Open http://localhost:8080 (default login: `admin` / `admin`), unpause `gratuity_etl_daily`, and trigger a run.
+First run downloads images and can take **5–15 minutes**. When ready:
 
-Set `PIPELINE_RUN_DATE=2025-06-01` in `.env` to process a specific sample day.
+1. Open http://localhost:8080
+2. Login: `admin` / `admin`
+3. Toggle **gratuity_etl_daily** ON (unpause)
+4. Click the play button → **Trigger DAG**
+
+For sample data, set `PIPELINE_RUN_DATE=2025-06-01` in `.env` before starting Docker (default "yesterday" may not match your CSV dates).
+
+To stop Airflow later: `docker compose down`
 
 ---
 
@@ -244,6 +289,32 @@ GratuityETL/
 **DailyTips tab** columns: `shift_date`, `gross_sales`, `cash_tips`, `credit_tips`
 
 Set `DATA_SOURCE=sheets` and `GOOGLE_SHEETS_ID` in `.env` to use live Sheets instead of CSV.
+
+---
+
+## Troubleshooting pip installs
+
+| Message | What it means | What to do |
+|---------|---------------|------------|
+| `looking at multiple versions of google-auth` | pip is resolving conflicts, often from Airflow + Google libs | Cancel with Ctrl+C; use `requirements.txt` as written (no Airflow) |
+| `This is taking longer than usual` | Resolver is backtracking across many versions | Wait 2–3 min, or cancel and upgrade pip first |
+| `Dataset gratuity_raw was not found` | Datasets not created yet | Run `python scripts/bootstrap_bigquery.py` |
+| `Billing has not been enabled` | No billing account linked to GCP project | Link billing in GCP Console (free tier still applies) |
+
+---
+
+| `dbt_run` failed: `Path '/home/airflow/.dbt' does not exist` | dbt profiles not visible inside Docker | `dbt/profiles.yml` exists in project; DAG sets `DBT_PROFILES_DIR` |
+
+---
+
+## Finding failed tasks in the Airflow UI
+
+1. Open http://localhost:8080 → click DAG **`gratuity_etl_daily`**
+2. On the **Grid** or **Graph** view, click the **red** (failed) task square — usually `dbt_run`
+3. Click **Log** in the popup (or top menu) to see the real error
+4. Scroll to lines with `ERROR` or `Error:` near the bottom
+
+Logs are also saved on your Mac under `logs/dag_id=gratuity_etl_daily/...`.
 
 ---
 
