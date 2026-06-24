@@ -149,9 +149,9 @@ docker compose up airflow-init
 docker compose up -d
 ```
 
-Open http://localhost:8080 (login: `admin` / `admin`), unpause **gratuity_etl_daily**, and trigger the DAG.
+After Docker is running **on your machine**, open the Airflow UI at http://localhost:8080 (login: `admin` / `admin`), unpause **gratuity_etl_daily**, and trigger the DAG. This URL is local only — it will not work from the GitHub README page.
 
-Set `PIPELINE_RUN_DATE=2025-06-01` in `.env` so the run date matches sample CSV dates.
+Before starting Docker, set `PIPELINE_RUN_DATE=2025-06-01` in `.env` so the run date matches the sample CSV dates.
 
 Stop later with: `docker compose down`
 
