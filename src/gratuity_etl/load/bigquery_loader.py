@@ -26,9 +26,14 @@ class BigQueryLoader:
         return self._session_factory()
 
     def load_shifts(self, rows: list[ShiftRow], run_date: date) -> int:
-        """Replace shift rows for a given business date (idempotent daily load)."""
+        """Replace shift rows for a given business date (idempotent daily load).
+
+        Delete-then-insert for the run date lets Airflow retries re-run safely
+        without duplicating rows if a downstream task fails and the DAG retries.
+        """
         now = datetime.utcnow()
         with self._session() as session:
+            # Scope delete to one business date — never wipe the full table.
             session.execute(delete(Shift).where(Shift.shift_date == run_date))
             for row in rows:
                 session.add(

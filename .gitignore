@@ -41,3 +41,6 @@ dbt/.user.yml
 # Local data artifacts
 *.db
 .gratuity/
+
+# Private local notes (keep on your machine, not on GitHub)
+INTERVIEW_PREP.md

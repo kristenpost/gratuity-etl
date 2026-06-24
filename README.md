@@ -1,21 +1,37 @@
-# GratuityETL — Full-Stack Tip Proration Pipeline
+# GratuityETL — Restaurant Tip Proration Pipeline
 
-Restaurant tip distribution is often manual and error-prone. **GratuityETL** automates fair tip proration based on hours worked per shift, with an audit trail for mid-shift clock-outs.
-
-**Stack:** Python · SQLAlchemy · dbt · BigQuery · Apache Airflow · Google Sheets API
+**Stack:** Python · SQLAlchemy · dbt · BigQuery · Apache Airflow · Google Sheets API · Docker
 
 ---
 
-## Problem and solution
+## What it does (plain English)
 
-| Challenge | GratuityETL approach |
-|-----------|---------------------|
-| Shift data lives in spreadsheets | Google Sheets API extract (sample CSV for demo) |
-| Mid-shift departures need a record | Append-only `audit_log` snapshots |
-| Tips combine auto-gratuity + cash/credit | dbt models compute pool and prorate by hours |
-| Manual recalculation is risky | Daily Airflow DAG + dbt tests validate payout totals |
+Restaurant staff often share tips based on hours worked, but doing that by hand in a spreadsheet is slow and error-prone. **GratuityETL** automates the math: it pulls shift and daily tip data, loads it into BigQuery, and uses **dbt** to calculate each employee's fair payout for the day — split by auto-gratuity, cash, and credit. **Airflow** runs the pipeline on a schedule, and automated tests check that payouts add up to the tip pool.
 
-### Architecture
+This is a **portfolio prototype** with included sample CSV data. You can run it locally without connecting to a real restaurant.
+
+---
+
+## Key features
+
+- **ELT pipeline** — Python extract/load → raw BigQuery → dbt transforms
+- **Idempotent raw loads** — delete + insert per business date so daily reruns don't duplicate rows
+- **Layered dbt models** — staging → intermediate → mart (`fct_daily_employee_payouts`)
+- **15 dbt tests** — null checks, grain validation, and $0.02 reconciliation against the tip pool
+- **Append-only audit log** — snapshots when someone clocks out mid-shift
+- **Dual extract sources** — sample CSV (default) or Google Sheets API
+- **Airflow orchestration** — six-task DAG in Docker with retries
+
+---
+
+## Architecture
+
+| Step | What happens |
+|------|----------------|
+| **Extract** | Shift + tip rows from CSV or Google Sheets |
+| **Load** | Python + SQLAlchemy writes raw tables in `gratuity_raw` |
+| **Transform** | dbt builds staging, intermediate, and mart models |
+| **Orchestrate** | Airflow DAG ties extract, load, audit, dbt run, and dbt test together |
 
 ```mermaid
 flowchart LR
@@ -23,9 +39,9 @@ flowchart LR
     Sheets[GoogleSheetsAPI]
     Sample[SampleCSV]
   end
-  subgraph python [Python_ETL]
+  subgraph python [Python]
     Audit[ClockOutAudit]
-    Loader[SQLAlchemy_BigQuery_Loader]
+    Loader[SQLAlchemyLoader]
   end
   subgraph bq [BigQuery]
     Raw[gratuity_raw]
@@ -35,7 +51,7 @@ flowchart LR
     Stg[staging]
     Mart[fct_daily_employee_payouts]
   end
-  Airflow[Airflow_DAG]
+  Airflow[AirflowDAG]
   Sheets --> Loader
   Sample --> Loader
   Loader --> Raw
@@ -50,63 +66,33 @@ flowchart LR
 
 ## Business logic
 
-### Tip pool
+**Tip pool**
 
 ```
 total_tip_pool = (gross_sales × 0.19) + cash_tips + credit_tips
 ```
 
-- **19%** = pooled auto-gratuity from daily gross sales
-- **Cash/credit tips** = additional amounts entered on the `DailyTips` tab
-
-### Proration
+**Proration**
 
 ```
-employee_payout = (employee_hours_on_day / total_hours_all_staff_on_day) × total_tip_pool
+employee_payout = (employee_hours / total_staff_hours) × total_tip_pool
 ```
 
-The mart table `fct_daily_employee_payouts` also exposes `hours_share_pct`, `auto_gratuity_share`, `cash_share`, `credit_share`, and `total_payout`.
+The mart exposes `hours_share_pct`, `auto_gratuity_share`, `cash_share`, `credit_share`, and `total_payout` per employee per day.
 
-### Mid-shift clock-out audit
-
-A snapshot is written when:
-
-- `is_mid_shift_clockout = true` in source data, **or**
-- `hours_worked` is greater than 0 but less than `EXPECTED_SHIFT_HOURS` (default 8)
+**Mid-shift clock-out audit** — a snapshot is written when `is_mid_shift_clockout = true`, or when hours worked is between 0 and `EXPECTED_SHIFT_HOURS` (default 8).
 
 ---
 
-## Cost and free-tier guardrails
+## What's in this repo (data & privacy)
 
-| Component | Cost |
-|-----------|------|
-| Apache Airflow (local Docker only — not pip) | Free |
-| dbt Core | Free |
-| BigQuery (sample data volume) | Free tier — pennies at most |
-| Google Sheets API | Free for prototype read volume |
-| Cloud Composer | **Not used** (would cost ~$300+/month) |
+| Included | Not included (gitignored) |
+|----------|---------------------------|
+| Sample CSV data in `data/sample/` (5 demo days) | Your `.env` file |
+| Code, dbt models, Airflow DAG | GCP service account JSON (`credentials/`) |
+| `.env.example` with placeholders | Your BigQuery data |
 
-**Tips to stay at $0:**
-
-1. Use local Airflow via `docker-compose.yml`, not Cloud Composer
-2. Set a GCP budget alert at $1–$5
-3. Keep sample data small (included CSVs cover 5 days)
-4. Delete unused BigQuery tables if you experiment heavily
-
-GCP signup typically requires a credit card for verification even on the free tier.
-
----
-
-## GCP setup checklist
-
-1. Create a GCP project and enable **BigQuery API**
-2. Create a service account with roles:
-   - `BigQuery Data Editor`
-   - `BigQuery Job User`
-3. Download JSON key → save as `credentials/service-account.json`
-4. (Optional) Enable **Google Sheets API** and share your sheet with the service account email
-5. Run bootstrap DDL: [`sql/ddl/bootstrap_datasets.sql`](sql/ddl/bootstrap_datasets.sql) (replace project id)
-6. Copy [`.env.example`](.env.example) → `.env` and fill in values
+No real restaurant or employee data is committed. Clone the repo, add your own GCP credentials locally, and run against sample data.
 
 ---
 
@@ -114,9 +100,7 @@ GCP signup typically requires a credit card for verification even on the free ti
 
 ### 1. Install dependencies
 
-**Important:** Do not install Apache Airflow with pip on your Mac. Airflow runs inside Docker (step 7). Including Airflow in pip causes long `google-auth` version conflicts.
-
-If a previous `pip install` is stuck, press **Ctrl+C**, then run:
+**Do not install Apache Airflow with pip on your Mac** — Airflow runs in Docker (step 7).
 
 ```bash
 cd "Gratuity ETL"
@@ -125,60 +109,44 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 pip install "dbt-core>=1.9,<2" "dbt-bigquery>=1.9,<1.10"
-python -c "import pandas, sqlalchemy, google.auth; print('OK')"
 dbt --version
 ```
-
-The ETL install usually finishes in 1–3 minutes. `dbt-bigquery` may take another 2–5 minutes — that is normal.
-
-Install **both** `dbt-core` and `dbt-bigquery` together. If you only downgrade `dbt-bigquery`, `dbt-core` can stay on `2.0.0-alpha` and cause odd errors.
-
-**Python 3.9 on macOS:** If you see `Failed building wheel for cryptography`, the pinned version in `requirements.txt` fixes it. Upgrade pip first, then re-run the commands above.
 
 ### 2. Configure environment
 
 ```bash
 cp .env.example .env
-# Edit .env with GCP_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS
-```
-
-### 3. Configure dbt
-
-```bash
 cp dbt/profiles.yml.example ~/.dbt/profiles.yml
-# Edit project id and keyfile path
+# Edit .env and profiles.yml with your GCP project id and key path
 cd dbt && dbt deps
 ```
 
-### 4. Create BigQuery datasets (one-time)
+### 3. Bootstrap BigQuery (one-time)
+
+GCP billing must be linked for writes (free tier still applies). Set a $1 budget alert in GCP Console.
 
 ```bash
-export GCP_PROJECT_ID=gratuity-etl
-export GOOGLE_APPLICATION_CREDENTIALS="/Users/kristen/Gratuity ETL/credentials/service-account.json"
+export GCP_PROJECT_ID=your-project-id
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 python scripts/bootstrap_bigquery.py
 ```
 
-### 5. Load sample data to BigQuery
-
-**Billing required:** GCP must have a billing account linked to run writes (INSERT/DELETE). You still get BigQuery free tier (~10 GB storage, ~1 TB queries/month). Set a $1 budget alert in GCP Console.
+### 4. Load sample data
 
 ```bash
 export PYTHONPATH=".:src"
-export GCP_PROJECT_ID=gratuity-etl
-export GOOGLE_APPLICATION_CREDENTIALS="/Users/kristen/Gratuity ETL/credentials/service-account.json"
 python scripts/load_all_sample_days.py
 ```
 
-### 6. Run dbt transforms
+### 5. Run dbt
 
 ```bash
 cd dbt
-export GCP_PROJECT_ID=your-project-id
 dbt run
 dbt test
 ```
 
-### 7. Query results in BigQuery
+### 6. Query the mart
 
 ```sql
 SELECT *
@@ -186,37 +154,21 @@ FROM `your-project-id.gratuity_marts.fct_daily_employee_payouts`
 ORDER BY shift_date, employee_name;
 ```
 
-### 8. Start Airflow (optional orchestration)
+### 7. Airflow (optional)
 
-**Prerequisite:** Install [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/) and make sure it is **running** (whale icon in the menu bar). Airflow runs inside Docker containers, not in your Python venv.
-
-In Terminal, from the project folder:
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
 
 ```bash
-cd "/Users/kristen/Gratuity ETL"
-docker compose down -v
 docker compose build
 docker compose up airflow-init
-```
-
-**macOS note:** Do **not** set `AIRFLOW_UID=$(id -u)` — that breaks Airflow in Docker on Mac. The compose file uses the default container user (`50000`).
-
-When `airflow-init` finishes without errors:
-
-```bash
 docker compose up -d
 ```
 
-First run downloads images and can take **5–15 minutes**. When ready:
+Open http://localhost:8080 (login: `admin` / `admin`), unpause **gratuity_etl_daily**, and trigger the DAG.
 
-1. Open http://localhost:8080
-2. Login: `admin` / `admin`
-3. Toggle **gratuity_etl_daily** ON (unpause)
-4. Click the play button → **Trigger DAG**
+Set `PIPELINE_RUN_DATE=2025-06-01` in `.env` so the run date matches sample CSV dates.
 
-For sample data, set `PIPELINE_RUN_DATE=2025-06-01` in `.env` before starting Docker (default "yesterday" may not match your CSV dates).
-
-To stop Airflow later: `docker compose down`
+Stop later with: `docker compose down`
 
 ---
 
@@ -224,17 +176,17 @@ To stop Airflow later: `docker compose down`
 
 ```
 GratuityETL/
-├── config/settings.py          # Environment configuration
+├── config/settings.py           # Environment configuration
 ├── src/gratuity_etl/
-│   ├── extract/                # Google Sheets + sample CSV
-│   ├── load/                   # SQLAlchemy → BigQuery
-│   ├── audit/                  # Mid-shift clock-out snapshots
-│   └── pipeline.py             # CLI entry points
-├── dbt/                        # Staging → marts transformations
-├── dags/gratuity_etl_daily.py  # Airflow DAG
-├── data/sample/                # Prototype CSV data
-├── scripts/                    # Helper scripts
-└── docker-compose.yml          # Local Airflow
+│   ├── extract/                 # Google Sheets + sample CSV
+│   ├── load/                    # SQLAlchemy → BigQuery (idempotent loads)
+│   ├── audit/                   # Mid-shift clock-out snapshots
+│   └── pipeline.py              # CLI entry points
+├── dbt/models/                  # staging → intermediate → marts
+├── dags/gratuity_etl_daily.py   # Airflow DAG
+├── data/sample/                 # Demo CSV data
+├── scripts/                     # Bootstrap + bulk load helpers
+└── docker-compose.yml           # Local Airflow
 ```
 
 ---
@@ -244,77 +196,22 @@ GratuityETL/
 | Scenario | Date | What happens |
 |----------|------|--------------|
 | Standard 3-person day | 2025-06-01 | Hours prorated 8 / 6 / 6 |
-| Mid-shift clock-out + second shift | 2025-06-02 | Alex 4h audit + 6h shift → 10h total |
-| Zero-hour shift | 2025-06-02 | Sam excluded from payouts (`hours_worked = 0`) |
-| Uneven cash vs credit tips | 2025-06-02 | High cash day; shares split by hours |
+| Mid-shift clock-out + return | 2025-06-02 | Alex 4h audit + 6h shift → 10h total |
+| Zero-hour shift | 2025-06-02 | Sam excluded from payouts |
+| Uneven cash vs credit | 2025-06-02 | Shares split by hours |
 | Mid-shift only (no return) | 2025-06-05 | Alex 3h audit snapshot |
 
-### Example output (2025-06-01)
-
-| employee | hours | share | total_payout |
-|----------|-------|-------|--------------|
-| Alex | 8.0 | 40% | ~$356.25 |
-| Jordan | 6.0 | 30% | ~$267.19 |
-| Sam | 6.0 | 30% | ~$267.19 |
-
-*Pool: $2,500 × 19% + $120 + $180 = $890.75*
+**Example (2025-06-01):** Pool = $2,500 × 19% + $120 + $180 = **$890.75** → Alex 40%, Jordan 30%, Sam 30%.
 
 ---
 
-## Assumptions
+## Google Sheets format (optional)
 
-- All tipped staff share one pool (no role-based weighting yet)
-- Proration uses **hours worked only**
-- 19% auto-gratuity applies to **gross sales**
-- One business date per pipeline run (default: yesterday)
-- Shift reload for a date is idempotent (delete + insert for that date)
-- `audit_log` is append-only
+Set `DATA_SOURCE=sheets` and `GOOGLE_SHEETS_ID` in `.env`.
 
----
+**Shifts tab:** `shift_date`, `employee_name`, `clock_in`, `clock_out`, `hours_worked`, `is_mid_shift_clockout`
 
-## Edge cases handled
-
-- Multiple shifts per employee per day (hours summed)
-- Mid-shift clock-out audit snapshots
-- Zero-hour employees excluded from mart
-- Missing `hours_worked` computed from clock in/out in dbt
-- Rounding: dbt test allows ≤ $0.02 daily variance across employees
-
----
-
-## Google Sheets format
-
-**Shifts tab** columns: `shift_date`, `employee_name`, `clock_in`, `clock_out`, `hours_worked`, `is_mid_shift_clockout`
-
-**DailyTips tab** columns: `shift_date`, `gross_sales`, `cash_tips`, `credit_tips`
-
-Set `DATA_SOURCE=sheets` and `GOOGLE_SHEETS_ID` in `.env` to use live Sheets instead of CSV.
-
----
-
-## Troubleshooting pip installs
-
-| Message | What it means | What to do |
-|---------|---------------|------------|
-| `looking at multiple versions of google-auth` | pip is resolving conflicts, often from Airflow + Google libs | Cancel with Ctrl+C; use `requirements.txt` as written (no Airflow) |
-| `This is taking longer than usual` | Resolver is backtracking across many versions | Wait 2–3 min, or cancel and upgrade pip first |
-| `Dataset gratuity_raw was not found` | Datasets not created yet | Run `python scripts/bootstrap_bigquery.py` |
-| `Billing has not been enabled` | No billing account linked to GCP project | Link billing in GCP Console (free tier still applies) |
-
----
-
-| `dbt_run` failed: `Path '/home/airflow/.dbt' does not exist` | dbt profiles not visible inside Docker | `dbt/profiles.yml` exists in project; DAG sets `DBT_PROFILES_DIR` |
-
----
-
-## Finding failed tasks in the Airflow UI
-
-1. Open http://localhost:8080 → click DAG **`gratuity_etl_daily`**
-2. On the **Grid** or **Graph** view, click the **red** (failed) task square — usually `dbt_run`
-3. Click **Log** in the popup (or top menu) to see the real error
-4. Scroll to lines with `ERROR` or `Error:` near the bottom
-
-Logs are also saved on your Mac under `logs/dag_id=gratuity_etl_daily/...`.
+**DailyTips tab:** `shift_date`, `gross_sales`, `cash_tips`, `credit_tips`
 
 ---
 
@@ -330,35 +227,44 @@ python -m gratuity_etl.pipeline run_full_pipeline
 
 ---
 
-## Future enhancements
+## Troubleshooting
 
-- Role-based tip weights (bartender vs server)
-- Looker / Metabase dashboard on `fct_daily_employee_payouts`
-- Cloud Composer deployment for managed Airflow
-- CI/CD (GitHub Actions: dbt test on PR)
-- Terraform for GCP resources
-- Real-time clock-out webhooks instead of batch snapshots
+| Issue | Fix |
+|-------|-----|
+| pip stuck on `google-auth` versions | Cancel; don't pip-install Airflow locally — use Docker |
+| `Dataset gratuity_raw was not found` | Run `python scripts/bootstrap_bigquery.py` |
+| `Billing has not been enabled` | Link billing in GCP Console |
+| Airflow `dbt_run` can't find profiles | `dbt/profiles.yml` in repo; DAG sets `DBT_PROFILES_DIR` |
+| Failed task in Airflow UI | Grid → red task → **Log**; also check `logs/dag_id=gratuity_etl_daily/` |
+
+**macOS:** Do not set `AIRFLOW_UID=$(id -u)` — it breaks Airflow in Docker on Mac.
 
 ---
 
-## Resume bullets
+## Future enhancements
 
-Copy-paste (adjust project name/company as needed):
-
-- Built **GratuityETL**, an end-to-end tip proration pipeline for restaurant shift data using **Python**, **SQLAlchemy**, **dbt**, **BigQuery**, and **Apache Airflow**
-- Designed **Google Sheets API** extraction and idempotent raw loads into BigQuery with an **append-only audit log** for mid-shift clock-out events
-- Implemented **dbt** staging/intermediate/mart models applying hours-based tip pool proration (19% auto-gratuity + cash/credit tips)
-- Orchestrated daily pipeline runs with **Airflow**, including dbt tests validating payout totals match tip pool amounts
+- Role-based tip weights (bartender vs server)
+- Looker / Metabase dashboard on the payout mart
+- Cloud Composer for managed Airflow
+- CI/CD (GitHub Actions: `dbt test` on PR)
+- Terraform for GCP resources
+- Real-time clock-out webhooks instead of batch audit snapshots
 
 ---
 
 ## Interview talking points
 
-1. **Why delete+insert per day?** Idempotent replays if a DAG retries; avoids duplicate shift rows.
-2. **Why audit log is append-only?** Preserves point-in-time evidence if tips are recalculated after early departures.
-3. **Why dbt for proration?** Business logic is versioned SQL with tests — easier for analysts to review than buried Python.
-4. **Why Airflow?** Explicit dependencies, retries, and scheduling for a daily finance workflow.
-5. **Data quality:** `not_null`, `unique`, and custom test that daily payouts sum to the tip pool.
+1. **Why ELT?** Load raw first, transform in dbt SQL inside BigQuery — versioned business logic with tests.
+2. **Why delete+insert per day?** Idempotent replays on DAG retry; no duplicate shift rows.
+3. **Why append-only audit log?** Point-in-time evidence for mid-shift clock-outs without overwriting history.
+4. **dbt layers:** Staging cleans data; intermediate aggregates hours; mart applies proration dollars.
+5. **Data quality:** 15 tests including custom reconciliation within $0.02 of the tip pool.
+
+---
+
+## Cost notes
+
+Local Airflow (Docker), dbt Core, and sample BigQuery usage stay in the **free tier**. Cloud Composer is **not used** (~$300+/month). GCP signup typically requires a card for verification.
 
 ---
 
