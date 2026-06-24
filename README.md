@@ -251,22 +251,6 @@ python -m gratuity_etl.pipeline run_full_pipeline
 
 ---
 
-## Interview talking points
-
-1. **Why ELT?** Load raw first, transform in dbt SQL inside BigQuery — versioned business logic with tests.
-2. **Why delete+insert per day?** Idempotent replays on DAG retry; no duplicate shift rows.
-3. **Why append-only audit log?** Point-in-time evidence for mid-shift clock-outs without overwriting history.
-4. **dbt layers:** Staging cleans data; intermediate aggregates hours; mart applies proration dollars.
-5. **Data quality:** 15 tests including custom reconciliation within $0.02 of the tip pool.
-
----
-
 ## Cost notes
 
 Local Airflow (Docker), dbt Core, and sample BigQuery usage stay in the **free tier**. Cloud Composer is **not used** (~$300+/month). GCP signup typically requires a card for verification.
-
----
-
-## License
-
-MIT — portfolio / educational use.
