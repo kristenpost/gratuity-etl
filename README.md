@@ -4,8 +4,7 @@
 
 ---
 
-## What it does (plain English)
-
+## Purpose of Pipeline
 Restaurant staff often share tips based on hours worked, but doing that by hand in a spreadsheet is slow and error-prone. **GratuityETL** automates the math: it pulls shift and daily tip data, loads it into BigQuery, and uses **dbt** to calculate each employee's fair payout for the day — split by auto-gratuity, cash, and credit. **Airflow** runs the pipeline on a schedule, and automated tests check that payouts add up to the tip pool.
 
 This is a **portfolio prototype** with included sample CSV data. You can run it locally without connecting to a real restaurant.
