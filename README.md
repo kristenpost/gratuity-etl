@@ -4,8 +4,9 @@
 
 ---
 
-## Purpose of Pipeline
-Restaurant staff often share tips based on hours worked, but doing that by hand in a spreadsheet is slow and error-prone. **GratuityETL** automates the math: it pulls shift and daily tip data, loads it into BigQuery, and uses **dbt** to calculate each employee's fair payout for the day — split by auto-gratuity, cash, and credit. **Airflow** runs the pipeline on a schedule, and automated tests check that payouts add up to the tip pool.
+## What it does
+
+Restaurant staff often share tips based on hours worked, but doing that by hand in a spreadsheet is slow and error-prone. **GratuityETL** automates the math: it pulls shift and daily tip data, loads it into BigQuery, and uses **dbt** to calculate each employee's fair payout for the day — split by auto-gratuity, cash, and credit. **Airflow** orchestrates the pipeline on a daily schedule; for local demos, trigger the DAG manually in the UI. Automated dbt tests check that payouts add up to the tip pool.
 
 This is a **portfolio prototype** with included sample CSV data. You can run it locally without connecting to a real restaurant.
 
@@ -19,7 +20,7 @@ This is a **portfolio prototype** with included sample CSV data. You can run it 
 - **15 dbt tests** — null checks, grain validation, and $0.02 reconciliation against the tip pool
 - **Append-only audit log** — snapshots when someone clocks out mid-shift
 - **Dual extract sources** — sample CSV (default) or Google Sheets API
-- **Airflow orchestration** — six-task DAG in Docker with retries
+- **Airflow orchestration** — six-task DAG in Docker with retries (daily schedule; trigger manually for local demos)
 
 ---
 
@@ -133,9 +134,11 @@ dbt test
 
 ### 6. Query the mart
 
+After `dbt run`, open BigQuery and confirm the dataset name — dbt may prefix the mart schema with your target dataset (e.g. `gratuity_staging_gratuity_marts` instead of `gratuity_marts`).
+
 ```sql
 SELECT *
-FROM `your-project-id.gratuity_marts.fct_daily_employee_payouts`
+FROM `your-project-id.gratuity_staging_gratuity_marts.fct_daily_employee_payouts`
 ORDER BY shift_date, employee_name;
 ```
 
