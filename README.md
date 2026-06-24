@@ -34,32 +34,18 @@ This is a **portfolio prototype** with included sample CSV data. You can run it 
 
 ```mermaid
 flowchart LR
-  subgraph extract [Extract]
-    Sheets[GoogleSheetsAPI]
-    Sample[SampleCSV]
-  end
-  subgraph python [Python]
-    Audit[ClockOutAudit]
-    Loader[SQLAlchemyLoader]
-  end
-  subgraph bq [BigQuery]
-    Raw[gratuity_raw]
-    Marts[gratuity_marts]
-  end
-  subgraph transform [dbt]
-    Stg[staging]
-    Mart[fct_daily_employee_payouts]
-  end
-  Airflow[AirflowDAG]
-  Sheets --> Loader
-  Sample --> Loader
-  Loader --> Raw
-  Audit --> Raw
-  Airflow --> python
-  Airflow --> transform
-  Raw --> Stg --> Mart
-  Mart --> Marts
+  sources[Google Sheets or CSV] --> loader[Python and SQLAlchemy]
+  loader --> raw[(gratuity_raw)]
+  audit[Clock-out audit] --> raw
+  raw --> dbt[dbt staging and mart]
+  dbt --> mart[fct_daily_employee_payouts]
+  orchestrator[Airflow DAG] --> loader
+  orchestrator --> dbt
 ```
+
+If the diagram above does not render in your browser, the flow is:
+
+**CSV / Sheets → Python load → gratuity_raw → dbt → payout mart** (orchestrated by Airflow)
 
 ---
 
